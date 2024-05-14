@@ -502,7 +502,7 @@ if __name__ == "__main__" :
 	from bidi.algorithm import get_display
 
 	# PIL font parameters
-	font_path = ".\\Assets\\Font\\Amiri-Regular.ttf"
+	font_path = "path\\to\\font.ttf"
 	font_size = 64
 
 	# Correctly shapes text
