@@ -160,7 +160,7 @@ class ArabicWord :
 			# Removes [] from vowels
 			print(f"Word has {len(self.alphabets)} alphabets and {len([i for i in self.vowels if i])} vowels\n")
 
-	def calculate_xy_and_wh_of_each_alphabet(self, offset_x = 0, offset_y = 0, debug = False) :
+	def calculate_xy_and_wh_of_each_alphabet(self, offset_x = 10, offset_y = 0, debug = False) :
 		
 		if debug :
 			print(f"----------\n")
