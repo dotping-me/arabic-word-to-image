@@ -449,8 +449,8 @@ class ArabicWord :
 		# Finds max y (bottommost character) between vowels and alphabets
 		word_img_h = max([alphabets_bottom_max, vowels_bottom_max])
 
-		# Increases total height for good measure
-		# word_img_h = int(1.1 * word_img_h)
+		# Increases total height as a safety
+		word_img_h = int(1.2 * word_img_h)
 
 		if debug :
 			print(f"----------\n\nCreating image of word\nWidth, Height = {word_img_w, word_img_h}")
