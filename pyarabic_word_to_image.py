@@ -242,7 +242,7 @@ class ArabicWord :
 			text_w, text_h, left, top = calculate_wh_of_rendered_text(text = i, font = self.font, anchor = anchor, debug = debug)
 
 			# Creates images for each unique vowel
-			vowel_img = Image.new("RGBA", (text_w, text_h), RGBA_BACKGROUND)
+			vowel_img = Image.new("RGBA", (text_w, text_h), RGBA_TRANSPARENT)
 			draw_img  = ImageDraw.Draw(vowel_img)
 
 			# Draws character with an offset
