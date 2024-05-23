@@ -9,9 +9,6 @@ RGBA_TEXT        = (0, 0, 0, 255)
 
 def calculate_box_to_crop_out_whitespace_from_img(img, margin = 1, debug = False) :
 	
-	if debug :
-		print(f"----------\n")
-
 	# Removes most unnecessary pixels (whitespace) from image
 	# Finds the x coordinate of the leftmost and rightmost pixel
 	# Finds the y coordinate of the topmost and bottommost pixel
@@ -66,9 +63,6 @@ def calculate_box_to_crop_out_whitespace_from_img(img, margin = 1, debug = False
 	return (left, top, right, bottom)
 
 def calculate_wh_of_rendered_text(text, font, anchor = None, debug = False) :
-
-	if debug :
-		print(f"----------\n")
 
 	# Anchor is dependent on font being used
 
@@ -239,7 +233,7 @@ class ArabicWord :
 		word_img_h = int(1.2 * word_img_h)
 
 		if self.__debug :
-			print(f"----------\n\nCreating image of word\nWidth, Height = {word_img_w, word_img_h}")
+			print(f"----------\nCreating Word Image\n\nWidth, Height = {word_img_w, word_img_h}\n")
 
 		# Creates image
 		word_img = Image.new("RGBA", (word_img_w, word_img_h), RGBA_BACKGROUND)
@@ -266,7 +260,7 @@ class ArabicWord :
 	def tokenize_word(self) :
 
 		if self.__debug :
-			print(f"----------\n")
+			print(f"----------\nTokenizing Word\n")
 
 		# Seperates alphabets and vowels in word
 		# Alphabets can have more than one vowel associated to them (2 max)
@@ -301,7 +295,7 @@ class ArabicWord :
 	def calculate_xy_and_wh_of_each_alphabet(self, offset_x = 0, offset_y = 0) :
 		
 		if self.__debug :
-			print(f"----------\n")
+			print(f"----------\nCalculating Alphabets XY\n")
 
 		# Offsets each alphabet's x by a certain amount
 		# So that alphabet/word doesn't start exactly on edge of image
@@ -356,7 +350,7 @@ class ArabicWord :
 	def create_img_of_each_different_vowels(self, anchor = None) :
 		
 		if self.__debug :
-			print(f"----------\n")
+			print(f"----------\nCreating Vowel Images\n")
 
 		# Identifies each unique vowels
 		vowels_unique = []
@@ -378,9 +372,6 @@ class ArabicWord :
 
 		for i in vowels_unique :
 			
-			if self.__debug :
-				print(f"----------\n")
-
 			# Calculates the width and height of each vowel when drawn
 			text_w, text_h, left, top = calculate_wh_of_rendered_text(text = i, font = self.font, anchor = anchor, debug = self.__debug)
 
@@ -417,7 +408,7 @@ class ArabicWord :
 	def calculate_xy_of_each_vowel_dependent_of_alphabet(self, alphabet_vowel_gap_y) :
 
 		if self.__debug :
-			print(f"----------\n")
+			print(f"----------\nCalculating Vowels XY\n")
 
 		# Calculates where each vowel will be drawn
 		# i.e. (left, top)
@@ -489,7 +480,7 @@ class ArabicWord :
 	def determine_baseline_of_word_img(self) :
 		
 		if self.__debug :
-			print(f"----------\n")
+			print(f"----------\nDetermining Baseline\n")
 
 		# Evaluates the bounding box of a box that intersects the bounding box of all alphabets in the image of the word
 		# This is being called as the "baseline"
@@ -516,6 +507,9 @@ class ArabicWord :
 			print(f"Baseline = {self.baseline}\n")
 
 	def show_bounding_boxes_in_img(self) :
+
+		if self.__debug :
+			print(f"----------\nCreating Debug Image\n")
 
 		# Mainly for testing and debugging
 
@@ -645,7 +639,7 @@ if __name__ == "__main__" :
 	from bidi.algorithm import get_display
 
 	# PIL font parameters
-	font_path = ".\\Assets\\Font\\Amiri-Regular.ttf"
+	font_path = "path to locally installed font"
 	font_size = 64
 
 	# Correctly shapes text
@@ -659,7 +653,8 @@ if __name__ == "__main__" :
 	arabic_word = ArabicWord(
 		word_string = text_shaped_words[0],
 		font_path   = font_path,
-		font_size   = font_size
+		font_size   = font_size,
+		debug       = TERMINAL_LOGS
 		)
 
 	# The image of the arabic word is created when the ArabicWord object is initialised
@@ -675,7 +670,8 @@ if __name__ == "__main__" :
 		list_of_word_strings = text_shaped_words,
 		font_path            = font_path,
 		font_size            = font_size,
-		create_debug_img     = False
+		create_debug_img     = False,
+		debug                = TERMINAL_LOGS
 		)	
 
 	sentence_img.show()
