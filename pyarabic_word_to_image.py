@@ -222,7 +222,7 @@ class ArabicWord :
 		for i, a in enumerate(self.alphabets) :
 
 			# Adds top and height
-			alphabets_bottom.append(self.alphabets_unique_wh[a][3] + self.alphabets_unique_wh[a][1])
+			alphabets_bottom.append(self.alphabets_xy[i][1] + self.alphabets_unique_wh[a][3] + self.alphabets_unique_wh[a][1])
 
 		alphabets_bottom_max = max(alphabets_bottom)
 
@@ -431,10 +431,35 @@ class ArabicWord :
 
 			for j, v in enumerate(vowels_for_this_alphabet) :
 				
-				# Centers vowel above/below alphabet on x-axis
-				# = A_Left + ((A_Width - V_Width) // 2)
+				# Specific case scenarios
+				if (this_alphabet in ['ﻷ', 'ﻵ']) and (len(vowels_for_this_alphabet) == 1) :
+					
+					# Places vowel as much right as possible above the character
+					# Because 'ﻻ' sometimes has characters above the right side but are considered as being part of the alphabet and not a vowel
+					v_x = (this_alphabet_actual_left + this_alphabet_actual_wh_xy[0]) - self.vowels_unique_img[v].size[0]
 
-				v_x = this_alphabet_actual_left + ((this_alphabet_actual_wh_xy[0] - self.vowels_unique_img[v].size[0]) // 2)
+
+				# 'ﻻ' is a special case
+				# There are 2 vowels that will be placed above 'ﻻ'
+				elif (this_alphabet in ['ﻻ', 'ﻷ', 'ﻵ']) and (len(vowels_for_this_alphabet) > 1) :
+					
+					# Vowels will be placed next to each other
+
+					# First vowel (leftmost vowel)
+					if j == 0 :
+						v_x = this_alphabet_actual_left
+
+					# Second vowel (rightmost vowel)
+					if j == 1 :
+						v_x = (this_alphabet_actual_left + this_alphabet_actual_wh_xy[0]) - self.vowels_unique_img[v].size[0]
+
+				# For other alphabets
+				# But also if alphabet is 'ﻻ' and has only one vowel associated to it
+				else :
+
+					# Centers vowel above/below alphabet on x-axis
+					# = A_Left + ((A_Width - V_Width) // 2)
+					v_x = this_alphabet_actual_left + ((this_alphabet_actual_wh_xy[0] - self.vowels_unique_img[v].size[0]) // 2)
 
 				# Calculates y coordinate (top)
 
@@ -452,11 +477,13 @@ class ArabicWord :
 					v_y = this_alphabet_actual_top - (self.vowels_unique_img[v].size[1] + alphabet_vowel_gap_y)
 
 					# There is another vowel for this alphabet
-					if (len(vowels_for_this_alphabet) > 1) and (j == 1) :
-						last_v = vowels_for_this_alphabet[j - 1]
+					if (len(vowels_for_this_alphabet) > 1) and (j == 0) :
+						next_v = vowels_for_this_alphabet[j + 1]
 
-						# Shifts vowel above next vowel
-						v_y = v_y - (self.vowels_unique_img[last_v].size[1] + alphabet_vowel_gap_y)
+						if next_v in ['ّ'] :
+
+							# Shifts this vowel above next vowel
+							v_y = v_y - (self.vowels_unique_img[next_v].size[1] + alphabet_vowel_gap_y)
 
 				elif v in ArabicWord.VOWELS_DOWN :
 					
@@ -466,6 +493,12 @@ class ArabicWord :
 					# = A_Top + A_Height
 
 					v_y = this_alphabet_actual_top + this_alphabet_actual_wh_xy[1] + alphabet_vowel_gap_y
+
+				# Adjusting y value (top) for specific case scenarios
+				if (this_alphabet in ['ﻻ', 'ﻷ', 'ﻵ']) :
+
+					# Shifts the vowel down
+					v_y = v_y + int(0.7 * self.vowels_unique_img[v].size[1])
 
 				if self.__debug :
 					print(f"Vowel         = {v} (for alphabet = {this_alphabet})\nWidth, Height = {self.vowels_unique_img[v].size}\nx, y          = {v_x, v_y}\n")
@@ -594,6 +627,15 @@ def create_img_of_sentence(list_of_word_strings, font_path, font_size = 12, crea
 	tallest_word    = arabic_word_obj[all_obj_h.index(max(all_obj_h))]
 	lowest_baseline = tallest_word.baseline[3]
 
+	# The image of the word is slightly bigger than the actual space (width and height) occupied by the word in the image
+	# Since the baseline for every word is determined by the tallest word
+	# Words with alphabets that are drawn below the baseline (i.e 'ﻦ', 'ﻲ') will be favoured over others (i.e 'ﻈ')
+
+	# Baseline is thus increased by a tiny percentage
+	# So that words that have tall alphabets (going up) don't have their vowels cut (most likely when they have 2)
+
+	lowest_baseline = int(1.1 * lowest_baseline)
+
 	# Finds the width taken by a " "
 	space_w = calculate_wh_of_rendered_text(text = " ", font = ImageFont.truetype(font_path, font_size))[0]
 
@@ -651,7 +693,7 @@ if __name__ == "__main__" :
 
 	# Inits object
 	arabic_word = ArabicWord(
-		word_string = text_shaped_words[0],
+		word_string = text_shaped_words[45],
 		font_path   = font_path,
 		font_size   = font_size,
 		debug       = TERMINAL_LOGS
@@ -670,7 +712,7 @@ if __name__ == "__main__" :
 		list_of_word_strings = text_shaped_words,
 		font_path            = font_path,
 		font_size            = font_size,
-		create_debug_img     = False,
+		create_debug_img     = True,
 		debug                = TERMINAL_LOGS
 		)	
 
