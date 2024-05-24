@@ -111,10 +111,11 @@ class ArabicWord :
 	VOWELS_UP   = ['َ', 'ْ', 'ُ', 'ٌ', 'ً', 'ّ']
 	VOWELS_DOWN = ['ِ', 'ٍ']
 
-	def __init__(self, word_string, font_path = None, font_size = 12, specific_vowel_offset = {}, debug = False) :
+	def __init__(self, word_string, font_path = None, font_size = 12, specific_vowel_offset = {}, img_background_rgba = RGBA_BACKGROUND, debug = False) :
 		
-		self.word_string = word_string
-		self.__debug     = debug
+		self.word_string         = word_string
+		self.img_background_rgba = img_background_rgba
+		self.__debug             = debug
 
 		# Init PIL font
 		self.font      = ImageFont.truetype(font_path, font_size)
@@ -236,7 +237,7 @@ class ArabicWord :
 			print(f"----------\nCreating Word Image\n\nWidth, Height = {word_img_w, word_img_h}\n")
 
 		# Creates image
-		word_img = Image.new("RGBA", (word_img_w, word_img_h), RGBA_BACKGROUND)
+		word_img = Image.new("RGBA", (word_img_w, word_img_h), self.img_background_rgba)
 		draw_img = ImageDraw.Draw(word_img)
 
 		# Draws alphabets
@@ -550,7 +551,7 @@ class ArabicWord :
 		# Because of inheritance, ...
 		
 		# Creates a copy of self.word_img
-		debug_img = Image.new("RGBA", self.word_img.size,RGBA_BACKGROUND)
+		debug_img = Image.new("RGBA", self.word_img.size, self.img_background_rgba)
 		debug_img.paste(self.word_img, (0, 0), mask = self.word_img)
 
 		draw_img = ImageDraw.Draw(debug_img)
@@ -597,68 +598,131 @@ class ArabicWord :
 
 		self.debug_img = debug_img
 
-def create_img_of_sentence(list_of_word_strings, font_path, font_size = 12, create_debug_img = False, debug = False) :
+def create_img_of_sentence(sentence_string, font_path, font_size = 12, n_lines = 1, align = "R", line_spacing = 0, create_debug_img = False, debug = False) :
 
-	# Note that each string in list_of_word_strings should have already been correctly shaped
+	# Note that sentence_string should have already been correctly shaped
+
+	# Splits string into words
+	# Reverses the list because the actual start of the string is at the end
+	sentence_words = sentence_string.split(" ")[::-1]
 	
+	# Note that here, the text is still LTR
+
 	# Creating image of a sentence/phrase by pasting images of words together
 	arabic_word_obj = []
 
-	for i in list_of_word_strings :
+	for i in sentence_words :
 
 		# Inits ArabicWord object
 		arabic_word_obj.append(
 			ArabicWord(
-				word_string = i,
-				font_path   = font_path,
-				font_size   = font_size,
-				debug       = debug
+				word_string         = i,
+				font_path           = font_path,
+				font_size           = font_size,
+				img_background_rgba = RGBA_TRANSPARENT,
+				debug               = debug
 				)
 			)
 
+		# Creates images of words with bounding boxed
 		if create_debug_img :
 			arabic_word_obj[-1].show_bounding_boxes_in_img()
 	
-	# Extracts all the widths and heights seperately for calculations later on
-	all_obj_w = [i.word_img.size[0] for i in arabic_word_obj]
-	all_obj_h = [i.word_img.size[1] for i in arabic_word_obj]
+	# Assigns which word is in what line
+	if n_lines != 1 :
+		arabic_word_obj_per_line = []
+		n_words_per_line         = len(arabic_word_obj) // n_lines
 
-	# Finds the baseline of the tallest word
-	tallest_word    = arabic_word_obj[all_obj_h.index(max(all_obj_h))]
-	lowest_baseline = tallest_word.baseline[3]
+		for i in range(n_lines) :
+			arabic_word_obj_per_line.append(arabic_word_obj[i * n_words_per_line : (i + 1) * n_words_per_line])
 
-	# The image of the word is slightly bigger than the actual space (width and height) occupied by the word in the image
-	# Since the baseline for every word is determined by the tallest word
-	# Words with alphabets that are drawn below the baseline (i.e 'ﻦ', 'ﻲ') will be favoured over others (i.e 'ﻈ')
+		# Appending "leftovers"
+		# Because some words are skipped due to integer division (rounding)
+		arabic_word_obj_leftover = arabic_word_obj[n_lines * n_words_per_line : -1] + [arabic_word_obj[-1]]
 
-	# Baseline is thus increased by a tiny percentage
-	# So that words that have tall alphabets (going up) don't have their vowels cut (most likely when they have 2)
+		if (len(arabic_word_obj) % n_lines) :
+			arabic_word_obj_per_line[-1] = arabic_word_obj_per_line[-1] + arabic_word_obj_leftover
 
-	lowest_baseline = int(1.1 * lowest_baseline)
+	else :
+		arabic_word_obj_per_line = [arabic_word_obj]
 
 	# Finds the width taken by a " "
 	space_w = calculate_wh_of_rendered_text(text = " ", font = ImageFont.truetype(font_path, font_size))[0]
 
-	# Creates image of sentence
-	sentence_w   = sum(all_obj_w) + (len(arabic_word_obj) * space_w)
-	sentence_h   = max(all_obj_h)
+	# Creates images of each line
+	all_line_img = []
+
+	for i, obj_in_this_line in enumerate(arabic_word_obj_per_line) :
+		
+		# Reverses each line to convert text from LTR to RTL
+		obj_in_this_line = obj_in_this_line[::-1]
+
+		# Extracts all the widths and heights seperately for calculations later on
+		all_obj_w = [j.word_img.size[0] for j in obj_in_this_line]
+		all_obj_h = [j.word_img.size[1] for j in obj_in_this_line]
+
+		# The image of the word is slightly bigger than the actual space (width and height) occupied by the word in the image
+		# Since the baseline for every word is determined by the tallest word
+		# Words with alphabets that are drawn below the baseline (i.e 'ﻦ', 'ﻲ') will be favoured over others (i.e 'ﻈ')
+
+		# Baseline is thus increased by a tiny percentage
+		# So that words that have tall alphabets (going up) don't have their vowels cut (most likely when they have 2)
+
+		# Finds the tallest alphabet in the tallest word (max height) that goes below the baseline
+		# i.e Bottom of alphabet > Bottom of baseline
+		lowest_baseline = max([j.baseline[3] for j in obj_in_this_line])
+
+		# Creates image for this line
+		line_w   = sum(all_obj_w) + (len(obj_in_this_line) * space_w)
+		line_h   = max(all_obj_h)
+		line_img = Image.new("RGBA", (line_w, line_h), RGBA_TRANSPARENT)
+
+		# Pastes images of words in this line together
+		for j, obj in enumerate(obj_in_this_line) :
+			obj_x = sum(all_obj_w[:j]) + (len(all_obj_w[:j]) * space_w)
+
+			# Shifts image on y-axis to match/align baseline
+			obj_y = lowest_baseline - obj.baseline[3]
+
+			# Uses image of word with bounding boxes drawn
+			if create_debug_img :
+				img_to_paste = obj.debug_img
+
+			else :
+				img_to_paste = obj.word_img
+
+			# Pastes image of word onto the image of the line
+			line_img.paste(img_to_paste, (obj_x, obj_y), mask = img_to_paste)
+
+		all_line_img.append(line_img)
+	
+	# Width of all the text is equal to (=) the width of the longest image amongst the images of the lines
+	sentence_w = max([i.size[0] for i in all_line_img])
+	
+	all_line_h = [i.size[1] for i in all_line_img]
+	sentence_h = sum(all_line_h) + (len(all_line_img) * line_spacing)
+
+	# Creates image of the whole text/sentence by pasting images of lines together
 	sentence_img = Image.new("RGBA", (sentence_w, sentence_h), RGBA_BACKGROUND)
 
-	# Pastes images of words together
-	for i, obj in enumerate(arabic_word_obj) :
-		obj_x = sum(all_obj_w[:i]) + (len(all_obj_w[:i]) * space_w)
+	# Pastes images of lines together to form the sentence
+	for i, line_img in enumerate(all_line_img) :
 
-		# Shifts image on y-axis to match/align baseline
-		obj_y = lowest_baseline - obj.baseline[3]
+		# Centers text
+		if align.upper() == "C" :
+			line_x = (sentence_w - line_img.size[0]) // 2
 
-		# Uses image of word with bounding boxes drawn
-		if create_debug_img :
-			img_to_paste = obj.debug_img
+		# Aligns text to the left
+		elif align.upper() == "L" :
+			line_x = 0
 
+		# Aligns text to the right
 		else :
-			img_to_paste = obj.word_img
+			line_x = sentence_w - line_img.size[0]
 
-		sentence_img.paste(img_to_paste, (obj_x, obj_y), mask = img_to_paste)
+		line_y = sum(all_line_h[:i]) + (i * line_spacing)
+
+		sentence_img.paste(line_img, (line_x, line_y), mask = line_img)
 
 	return sentence_img
 
@@ -709,9 +773,12 @@ if __name__ == "__main__" :
 
 	# Creating image of a sentence
 	sentence_img = create_img_of_sentence(
-		list_of_word_strings = text_shaped_words,
+		sentence_string      = text_shaped,
+		n_lines              = 10,
 		font_path            = font_path,
 		font_size            = font_size,
+		align                = "R",
+		line_spacing         = 10,
 		create_debug_img     = True,
 		debug                = TERMINAL_LOGS
 		)	
