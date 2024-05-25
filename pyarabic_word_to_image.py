@@ -760,7 +760,7 @@ if __name__ == "__main__" :
 	from bidi.algorithm import get_display
 
 	# PIL font parameters
-	font_path = ".\\Assets\\Font\\NotoNaskhArabic-Regular.ttf"
+	font_path = "path to locally installed font (.ttf)"
 	font_size = 64
 
 	# Correctly shapes text
