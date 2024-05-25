@@ -62,7 +62,7 @@ def calculate_box_to_crop_out_whitespace_from_img(img, margin = 1, debug = False
 
 	return (left, top, right, bottom)
 
-def calculate_wh_of_rendered_text(text, font, anchor = None, debug = False) :
+def calculate_wh_and_bbox_of_rendered_text(text, font, anchor = None, debug = False) :
 
 	# Anchor is dependent on font being used
 
@@ -86,16 +86,13 @@ def calculate_wh_of_rendered_text(text, font, anchor = None, debug = False) :
 
 	# Assuming that the text anchor is "mm"
 
-	left = text_bbox[0] 
-	top  = text_bbox[1]
-
 	# Releases memory
 	render_text_on.close()
 
 	if debug :
-		print(f"Text          = {text}\nBounding box  = {text_bbox}\nWidth, Height = {text_w, text_h}\nLeft, Top     = {left, top}\n")
+		print(f"Text          = {text}\nBounding box  = {text_bbox}\nWidth, Height = {text_w, text_h}\nLeft, Top     = {text_bbox[0], text_bbox[1]}\n")
 
-	return (text_w, text_h, left, top)
+	return ((text_w, text_h), text_bbox)
 
 class ArabicWord :
 
@@ -111,11 +108,16 @@ class ArabicWord :
 	VOWELS_UP   = ['َ', 'ْ', 'ُ', 'ٌ', 'ً', 'ّ']
 	VOWELS_DOWN = ['ِ', 'ٍ']
 
-	def __init__(self, word_string, font_path = None, font_size = 12, specific_vowel_offset = {}, img_background_rgba = RGBA_BACKGROUND, debug = False) :
+	def __init__(self, word_string, font_path = None, font_size = 12, specific_vowel_offset = {}, img_background_rgba = RGBA_BACKGROUND, cached_unique_alphabets_wh_and_bbox = {}, cached_unique_vowels_img = {}, debug = False) :
 		
 		self.word_string         = word_string
 		self.img_background_rgba = img_background_rgba
 		self.__debug             = debug
+
+		# More efficient, especially when creating images of sentences
+		# Because calculations for the same characters won't be done again
+		self.unique_alphabets_wh_and_bbox = cached_unique_alphabets_wh_and_bbox
+		self.unique_vowels_img   = cached_unique_vowels_img
 
 		# Init PIL font
 		self.font      = ImageFont.truetype(font_path, font_size)
@@ -194,7 +196,7 @@ class ArabicWord :
 					print(f"Vowel        = {self.vowels[i][j]} (for alphabet = {self.alphabets[i]})\nShifted x, y = {self.vowels_xy[i][j]}\n")
 
 		# Calculates the total width that the image should take
-		word_img_w = self.alphabets_xy[-1][0] + self.alphabets_unique_wh[self.alphabets[-1]][0]
+		word_img_w = self.alphabets_xy[-1][0] + self.unique_alphabets_wh_and_bbox[self.alphabets[-1]][0][0]
 
 		# Calculates the total height that the image should take
 		# Finds the lowest y value (top + height) between vowels and alphabets
@@ -211,7 +213,7 @@ class ArabicWord :
 				for j, v in enumerate(vowels_for_this_alphabet) :
 					
 					# Adds top and height
-					vowels_bottom.append(self.vowels_xy[i][j][1] + self.vowels_unique_img[v].size[1])
+					vowels_bottom.append(self.vowels_xy[i][j][1] + self.unique_vowels_img[v].size[1])
 
 			vowels_bottom_max = max(vowels_bottom)
 
@@ -222,8 +224,8 @@ class ArabicWord :
 
 		for i, a in enumerate(self.alphabets) :
 
-			# Adds top and height
-			alphabets_bottom.append(self.alphabets_xy[i][1] + self.alphabets_unique_wh[a][3] + self.alphabets_unique_wh[a][1])
+			# ... = y + A_Bottom
+			alphabets_bottom.append(self.alphabets_xy[i][1] + self.unique_alphabets_wh_and_bbox[a][1][3])
 
 		alphabets_bottom_max = max(alphabets_bottom)
 
@@ -251,7 +253,7 @@ class ArabicWord :
 		# Pastes vowels
 		for i, vowels_for_this_alphabet in enumerate(self.vowels) :
 			for j, v in enumerate(vowels_for_this_alphabet)  :
-				word_img.paste(self.vowels_unique_img[v], self.vowels_xy[i][j], mask = self.vowels_unique_img[v])
+				word_img.paste(self.unique_vowels_img[v], self.vowels_xy[i][j], mask = self.unique_vowels_img[v])
 
 		self.word_img = word_img
 
@@ -302,24 +304,16 @@ class ArabicWord :
 		# So that alphabet/word doesn't start exactly on edge of image
 		if not offset_x :
 			offset_x = int(0.1 * self.font_size)
+			
+		# Calculates the width and height of each alphabet when drawn
 
-		# Identifies each unique alphabet
-		alphabets_unique = []
-		
 		for i in self.alphabets :
 
-			# Unique alphabet
-			if i not in alphabets_unique :
-				alphabets_unique.append(i)
+			# When using the cache system, only alphabets that have not been processed before will be processed
+			# When not using the cache system, all alphabets will be processed
 
-		if self.__debug :
-			print(f"Word has {len(alphabets_unique)} different unique alphabets\n")
-
-		# Calculates the width and height of each alphabet when drawn
-		self.alphabets_unique_wh = {}
-
-		for i in alphabets_unique :
-			self.alphabets_unique_wh[i] = calculate_wh_of_rendered_text(text = i, font = self.font, debug = self.__debug)
+			if i not in self.unique_alphabets_wh_and_bbox :
+				self.unique_alphabets_wh_and_bbox[i] = calculate_wh_and_bbox_of_rendered_text(text = i, font = self.font, debug = self.__debug)
 
 		# Calculates where each alphabet will be drawn
 		# i.e. (left, top)
@@ -333,7 +327,12 @@ class ArabicWord :
 		for i, a in enumerate(self.alphabets) :
 			
 			# Calculates the sum of the width that the alphabets before this one takes (when joined together)
-			a_x = offset_x + (calculate_wh_of_rendered_text(text = "".join(j for j in self.alphabets[:i]), font = self.font, debug = self.__debug))[0]
+			
+			# The font sometimes joins some alphabets closer together and distances others
+			# Hence, calculating the x (left) value based on the individual width of each alphabets will not work
+			# Because it does not take into account how the font handles/draws the alphabets together
+
+			a_x = offset_x + (calculate_wh_and_bbox_of_rendered_text(text = "".join(j for j in self.alphabets[:i]), font = self.font, debug = self.__debug))[0][0]
 
 			# Y will usually be constant for all alphabets
 			# Y will later be changed depending on what vowels are pasted on top of alphabets and the height that they occupy
@@ -342,7 +341,7 @@ class ArabicWord :
 			self.alphabets_xy.append((a_x, a_y))
 
 			if self.__debug :
-				print(f"Alphabet      = {a}\nWidth, Height = {self.alphabets_unique_wh[a][0], self.alphabets_unique_wh[a][1]}\nx, y          = {a_x, a_y}\n")
+				print(f"Alphabet      = {a}\nWidth, Height = {self.unique_alphabets_wh_and_bbox[a][0], self.unique_alphabets_wh_and_bbox[a][1]}\nx, y          = {a_x, a_y}\n")
 
 		# Note that these values won't be used to draw alphabets
 		# Because there may be cases where alphabets won't be properly joined together (if these values are used)
@@ -353,58 +352,49 @@ class ArabicWord :
 		if self.__debug :
 			print(f"----------\nCreating Vowel Images\n")
 
-		# Identifies each unique vowels
-		vowels_unique = []
+		# Creates images for each vowel
 
-		for i in self.vowels :
+		for vowels_for_this_alphabet in self.vowels :
+			for v in vowels_for_this_alphabet :
 
-			# Variable i is a list of vowels
-			for j in i :
+				# When using the cache system, only vowels that have not been processed before will be processed
+				# When not using the cache system, all vowels will be processed
+				
+				# Image for this vowel does not exist
+				if v not in self.unique_vowels_img :
 
-				# Unique vowel
-				if j not in vowels_unique :
-					vowels_unique.append(j)
-		
-		if self.__debug :
-			print(f"Word has {len(vowels_unique)} different unique vowels\n")
+					# Calculates the width and height of each vowel when drawn
+					(text_w, text_h), (left, top, right, bottom) = calculate_wh_and_bbox_of_rendered_text(text = v, font = self.font, anchor = anchor, debug = self.__debug)
 
-		# Processes each unique vowel
-		self.vowels_unique_img = {}
+					# Creates images for each unique vowel
+					vowel_img = Image.new("RGBA", (text_w, text_h), RGBA_TRANSPARENT)
+					draw_img  = ImageDraw.Draw(vowel_img)
 
-		for i in vowels_unique :
-			
-			# Calculates the width and height of each vowel when drawn
-			text_w, text_h, left, top = calculate_wh_of_rendered_text(text = i, font = self.font, anchor = anchor, debug = self.__debug)
+					# Draws character with an offset
 
-			# Creates images for each unique vowel
-			vowel_img = Image.new("RGBA", (text_w, text_h), RGBA_TRANSPARENT)
-			draw_img  = ImageDraw.Draw(vowel_img)
+					# Shift character from (left, top) to (0, 0)
+					# Since the width and height of the image = the width and height of the character,
+					# An image of only the character is created with minimal whitespace
 
-			# Draws character with an offset
+					# This shift works well for alphabets but not so much for vowels
+					# Because vowels have a lot of whitespace in the character/unicode itself
 
-			# Shift character from (left, top) to (0, 0)
-			# Since the width and height of the image = the width and height of the character,
-			# An image of only the character is created with minimal whitespace
+					draw_img.text(
+						xy   = (- left, - top),
+						text = v,
+						font = self.font,
+						fill = RGBA_TEXT
+						)
 
-			# This shift works well for alphabets but not so much for vowels
-			# Because vowels have a lot of whitespace in the character/unicode itself
+					if self.__debug :
+						print(f"Creating image of text\nText          = {v}\nWidth, Height = {text_w, text_h}\nx, y          = {- left, - top}\n")
 
-			draw_img.text(
-				xy   = (- left, - top),
-				text = i,
-				font = self.font,
-				fill = RGBA_TEXT
-				)
+					# Images of vowels are cropped to remove whitespace
+					# Because some fonts draw vowels with whitespace and others without
+					# The images are thus cropped as a standard
 
-			if self.__debug :
-				print(f"Creating image of text\nText          = {i}\nWidth, Height = {text_w, text_h}\nx, y          = {- left, - top}\n")
-
-			# Images of vowels are cropped to remove whitespace
-			# Because some fonts draw vowels with whitespace and others without
-			# The images are thus cropped as a standard
-
-			# Crops image of vowel
-			self.vowels_unique_img[i] = vowel_img.crop(box = calculate_box_to_crop_out_whitespace_from_img(img = vowel_img, debug = self.__debug))
+					# Crops image of vowel
+					self.unique_vowels_img[v] = vowel_img.crop(box = calculate_box_to_crop_out_whitespace_from_img(img = vowel_img, debug = self.__debug))
 
 	def calculate_xy_of_each_vowel_dependent_of_alphabet(self, alphabet_vowel_gap_y) :
 
@@ -425,10 +415,14 @@ class ArabicWord :
 			xy_for_these_vowels_for_this_alphabet = []
 
 			# xy where the alphabet is actually drawn = (left, top)
-			this_alphabet_actual_wh_xy = self.alphabets_unique_wh[this_alphabet]
+			this_alphabet_actual_wh   = self.unique_alphabets_wh_and_bbox[this_alphabet][0]
+			this_alphabet_actual_bbox = self.unique_alphabets_wh_and_bbox[this_alphabet][1]
 
-			this_alphabet_actual_left = self.alphabets_xy[i][0] + this_alphabet_actual_wh_xy[2]
-			this_alphabet_actual_top  = self.alphabets_xy[i][1] + this_alphabet_actual_wh_xy[3]
+			# Calculating the actual values of the corners of the bounding box of this alphabet
+			this_alphabet_actual_left   = self.alphabets_xy[i][0] + this_alphabet_actual_bbox[0] # ... = x + left
+			this_alphabet_actual_top    = self.alphabets_xy[i][1] + this_alphabet_actual_bbox[1] # ... = y + top 
+			this_alphabet_actual_right  = self.alphabets_xy[i][0] + this_alphabet_actual_bbox[2] # ... = x + right
+			this_alphabet_actual_bottom = self.alphabets_xy[i][1] + this_alphabet_actual_bbox[3] # ... = y + bottom
 
 			for j, v in enumerate(vowels_for_this_alphabet) :
 				
@@ -437,8 +431,7 @@ class ArabicWord :
 					
 					# Places vowel as much right as possible above the character
 					# Because 'ﻻ' sometimes has characters above the right side but are considered as being part of the alphabet and not a vowel
-					v_x = (this_alphabet_actual_left + this_alphabet_actual_wh_xy[0]) - self.vowels_unique_img[v].size[0]
-
+					v_x = this_alphabet_actual_right - self.unique_vowels_img[v].size[0]
 
 				# 'ﻻ' is a special case
 				# There are 2 vowels that will be placed above 'ﻻ'
@@ -452,7 +445,7 @@ class ArabicWord :
 
 					# Second vowel (rightmost vowel)
 					if j == 1 :
-						v_x = (this_alphabet_actual_left + this_alphabet_actual_wh_xy[0]) - self.vowels_unique_img[v].size[0]
+						v_x = this_alphabet_actual_right - self.unique_vowels_img[v].size[0]
 
 				# For other alphabets
 				# But also if alphabet is 'ﻻ' and has only one vowel associated to it
@@ -460,7 +453,7 @@ class ArabicWord :
 
 					# Centers vowel above/below alphabet on x-axis
 					# = A_Left + ((A_Width - V_Width) // 2)
-					v_x = this_alphabet_actual_left + ((this_alphabet_actual_wh_xy[0] - self.vowels_unique_img[v].size[0]) // 2)
+					v_x = this_alphabet_actual_left + ((this_alphabet_actual_wh[0] - self.unique_vowels_img[v].size[0]) // 2)
 
 				# Calculates y coordinate (top)
 
@@ -475,7 +468,7 @@ class ArabicWord :
 					# Places vowel above alphabet (- to shift vowel's y up)
 					# = A_Top - V_Height
 
-					v_y = this_alphabet_actual_top - (self.vowels_unique_img[v].size[1] + alphabet_vowel_gap_y)
+					v_y = this_alphabet_actual_top - (self.unique_vowels_img[v].size[1] + alphabet_vowel_gap_y)
 
 					# There is another vowel for this alphabet
 					if (len(vowels_for_this_alphabet) > 1) and (j == 0) :
@@ -484,7 +477,7 @@ class ArabicWord :
 						if next_v in ['ّ'] :
 
 							# Shifts this vowel above next vowel
-							v_y = v_y - (self.vowels_unique_img[next_v].size[1] + alphabet_vowel_gap_y)
+							v_y = v_y - (self.unique_vowels_img[next_v].size[1] + alphabet_vowel_gap_y)
 
 				elif v in ArabicWord.VOWELS_DOWN :
 					
@@ -493,16 +486,16 @@ class ArabicWord :
 					# Places vowel below alphabet (+ to shift vowel's y down)
 					# = A_Top + A_Height
 
-					v_y = this_alphabet_actual_top + this_alphabet_actual_wh_xy[1] + alphabet_vowel_gap_y
+					v_y = this_alphabet_actual_bottom + alphabet_vowel_gap_y
 
 				# Adjusting y value (top) for specific case scenarios
 				if (this_alphabet in ['ﻻ', 'ﻷ', 'ﻵ']) :
 
 					# Shifts the vowel down
-					v_y = v_y + int(0.7 * self.vowels_unique_img[v].size[1])
+					v_y = v_y + int(0.7 * self.unique_vowels_img[v].size[1])
 
 				if self.__debug :
-					print(f"Vowel         = {v} (for alphabet = {this_alphabet})\nWidth, Height = {self.vowels_unique_img[v].size}\nx, y          = {v_x, v_y}\n")
+					print(f"Vowel         = {v} (for alphabet = {this_alphabet})\nWidth, Height = {self.unique_vowels_img[v].size}\nx, y          = {v_x, v_y}\n")
 
 				xy_for_these_vowels_for_this_alphabet.append((v_x, v_y))
 
@@ -525,14 +518,16 @@ class ArabicWord :
 
 		# Searching for only the topmost and bottommost values
 
-		# Note that self.alphabets_unique_wh holds tuples containing values for:
+		# Note that self.unique_alphabets_wh_and_bbox holds tuples containing values for:
 		# (width, height, left, top)
 
 		# Topmost value = alphabet with the lowest top (max y value)
-		baseline_top = max([self.alphabets_unique_wh[a][3] for i, a in enumerate(self.alphabets)]) + self.shift_y_by
+		# ... = max([A_Top for i, a ...])
+		baseline_top = max([self.unique_alphabets_wh_and_bbox[a][1][1] for a in self.alphabets]) + self.shift_y_by
 
 		# Bottommost value = alphabet with the highest bottom (min y value)
-		baseline_bottom = min([(self.alphabets_unique_wh[a][3] + self.alphabets_unique_wh[a][1]) for i, a in enumerate(self.alphabets)]) + self.shift_y_by
+		# ... = min([A_Bottom for i, a ...])
+		baseline_bottom = min([self.unique_alphabets_wh_and_bbox[a][1][3] for a in self.alphabets]) + self.shift_y_by
 
 		# Leftmost and rightmost values are given by the width of the image of the word
 		self.baseline = (0, baseline_top, self.word_img.size[0] - 1, baseline_bottom)
@@ -549,7 +544,7 @@ class ArabicWord :
 
 		# Doesn't directly do <debug_img = self.word_img>
 		# Because of inheritance, ...
-		
+
 		# Creates a copy of self.word_img
 		debug_img = Image.new("RGBA", self.word_img.size, self.img_background_rgba)
 		debug_img.paste(self.word_img, (0, 0), mask = self.word_img)
@@ -563,10 +558,10 @@ class ArabicWord :
 		for i, xy in enumerate(self.alphabets_xy) :
 			this_alphabet = self.alphabets[i]
 			
-			left   = xy[0] + self.alphabets_unique_wh[this_alphabet][2]
-			top    = xy[1] + self.alphabets_unique_wh[this_alphabet][3]
-			right  = left  + self.alphabets_unique_wh[this_alphabet][0]
-			bottom = top   + self.alphabets_unique_wh[this_alphabet][1]
+			left   = xy[0] + self.unique_alphabets_wh_and_bbox[this_alphabet][1][0]
+			top    = xy[1] + self.unique_alphabets_wh_and_bbox[this_alphabet][1][1]
+			right  = xy[0] + self.unique_alphabets_wh_and_bbox[this_alphabet][1][2]
+			bottom = xy[1] + self.unique_alphabets_wh_and_bbox[this_alphabet][1][3]
 
 			draw_img.rectangle(
 				xy      = (left, top, right, bottom),
@@ -579,7 +574,7 @@ class ArabicWord :
 		for i, vowels_for_this_alphabet in enumerate(self.vowels_xy) :
 			for j, xy in enumerate(vowels_for_this_alphabet) :
 				this_vowel = self.vowels[i][j]
-				vowel_bbox = (xy[0], xy[1], xy[0] + self.vowels_unique_img[this_vowel].size[0], xy[1] + self.vowels_unique_img[this_vowel].size[1])
+				vowel_bbox = (xy[0], xy[1], xy[0] + self.unique_vowels_img[this_vowel].size[0], xy[1] + self.unique_vowels_img[this_vowel].size[1])
 
 				draw_img.rectangle(
 					xy      = vowel_bbox,
@@ -611,23 +606,43 @@ def create_img_of_sentence(sentence_string, font_path, font_size = 12, n_lines =
 	# Creating image of a sentence/phrase by pasting images of words together
 	arabic_word_obj = []
 
+	# Uses a cache system to speed up the process
+	cached_unique_alphabets_wh_and_bbox = {}
+	cached_unique_vowels_img   = {}
+
 	for i in sentence_words :
 
 		# Inits ArabicWord object
-		arabic_word_obj.append(
-			ArabicWord(
-				word_string         = i,
-				font_path           = font_path,
-				font_size           = font_size,
-				img_background_rgba = RGBA_TRANSPARENT,
-				debug               = debug
-				)
+		obj = ArabicWord(
+			word_string                = i,
+			font_path                  = font_path,
+			font_size                  = font_size,
+			img_background_rgba        = RGBA_TRANSPARENT,
+			cached_unique_alphabets_wh_and_bbox = cached_unique_alphabets_wh_and_bbox,
+			cached_unique_vowels_img   = cached_unique_vowels_img,
+			debug                      = debug
 			)
+
+		# Builds cache for alphabets' dimensions
+		for j in obj.unique_alphabets_wh_and_bbox :
+
+			# Dimensions for a new alphabet was calculated
+			if j not in cached_unique_alphabets_wh_and_bbox :
+				cached_unique_alphabets_wh_and_bbox[j] = obj.unique_alphabets_wh_and_bbox[j]
+
+		# Builds cache for images of vowels
+		for j in obj.unique_vowels_img :
+
+			# Image for a new vowel was created
+			if j not in obj.unique_vowels_img :
+				cached_unique_vowels_img[j] = obj.unique_vowels_img[j]
 
 		# Creates images of words with bounding boxed
 		if create_debug_img :
-			arabic_word_obj[-1].show_bounding_boxes_in_img()
-	
+			obj.show_bounding_boxes_in_img()
+		
+		arabic_word_obj.append(obj)
+
 	# Assigns which word is in what line
 	if n_lines != 1 :
 		arabic_word_obj_per_line = []
@@ -647,7 +662,7 @@ def create_img_of_sentence(sentence_string, font_path, font_size = 12, n_lines =
 		arabic_word_obj_per_line = [arabic_word_obj]
 
 	# Finds the width taken by a " "
-	space_w = calculate_wh_of_rendered_text(text = " ", font = ImageFont.truetype(font_path, font_size))[0]
+	space_w = calculate_wh_and_bbox_of_rendered_text(text = " ", font = ImageFont.truetype(font_path, font_size))[0][0]
 
 	# Creates images of each line
 	all_line_img = []
@@ -745,7 +760,7 @@ if __name__ == "__main__" :
 	from bidi.algorithm import get_display
 
 	# PIL font parameters
-	font_path = "path to locally installed font"
+	font_path = ".\\Assets\\Font\\NotoNaskhArabic-Regular.ttf"
 	font_size = 64
 
 	# Correctly shapes text
@@ -779,7 +794,7 @@ if __name__ == "__main__" :
 		font_size            = font_size,
 		align                = "R",
 		line_spacing         = 10,
-		create_debug_img     = True,
+		create_debug_img     = False,
 		debug                = TERMINAL_LOGS
 		)	
 
