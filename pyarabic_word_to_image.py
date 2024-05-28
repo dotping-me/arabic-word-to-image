@@ -593,13 +593,13 @@ class ArabicWord :
 
 		self.debug_img = debug_img
 
-def create_img_of_sentence(sentence_string, font_path, font_size = 12, n_lines = 1, align = "R", line_spacing = 0, create_debug_img = False, debug = False) :
+def create_img_of_sentence(sentence_string, font_path, font_size = 12, seperator = " ", n_lines = 1, align = "R", line_spacing = 0, create_debug_img = False, debug = False) :
 
 	# Note that sentence_string should have already been correctly shaped
 
 	# Splits string into words
 	# Reverses the list because the actual start of the string is at the end
-	sentence_words = sentence_string.split(" ")[::-1]
+	sentence_words = sentence_string.split(seperator)[::-1]
 	
 	# Note that here, the text is still LTR
 
@@ -662,7 +662,7 @@ def create_img_of_sentence(sentence_string, font_path, font_size = 12, n_lines =
 		arabic_word_obj_per_line = [arabic_word_obj]
 
 	# Finds the width taken by a " "
-	space_w = calculate_wh_and_bbox_of_rendered_text(text = " ", font = ImageFont.truetype(font_path, font_size))[0][0]
+	space_w = calculate_wh_and_bbox_of_rendered_text(text = seperator, font = ImageFont.truetype(font_path, font_size))[0][0]
 
 	# Creates images of each line
 	all_line_img = []
